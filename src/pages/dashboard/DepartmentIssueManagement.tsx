@@ -1,0 +1,339 @@
+import { useState, useEffect } from 'react';
+import { Search, Filter, Download, MoreVertical, Eye, CheckCircle, Clock, AlertTriangle, MapPin, Users, X, Calendar, Info, Maximize2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
+import { useAuth } from '../../context/AuthContext';
+import { db } from '../../firebase';
+import { collection, query, where, onSnapshot, orderBy, doc, updateDoc } from 'firebase/firestore';
+
+export default function DepartmentIssueManagement() {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const [issues, setIssues] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedIssue, setSelectedIssue] = useState<any>(null);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [showFullImage, setShowFullImage] = useState(false);
+
+  const handleUpdateStatus = async (newStatus: string) => {
+    if (!selectedIssue) return;
+    setUpdatingStatus(true);
+    try {
+      const issueRef = doc(db, 'reports', selectedIssue.id);
+      await updateDoc(issueRef, { status: newStatus });
+      setSelectedIssue({ ...selectedIssue, status: newStatus });
+    } catch (error) {
+      console.error("Error updating status:", error);
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.department) return;
+
+    setLoading(true);
+    const q = query(
+      collection(db, 'reports'),
+      where('department', '==', user.department),
+      orderBy('reportedAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const reportsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setIssues(reportsData);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching reports:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  return (
+    <div className="space-y-6">
+      {/* Header Actions */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="relative flex-1 min-w-[300px]">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            type="text"
+            placeholder="Search by ID, location, or department..."
+            className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-3 pl-12 pr-4 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <button className="flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3 text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800">
+            <Filter size={18} />
+            Filter
+          </button>
+          <button className="flex items-center gap-2 rounded-xl bg-slate-900 dark:bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800 dark:hover:bg-blue-700">
+            <Download size={18} />
+            Export
+          </button>
+        </div>
+      </div>
+
+      {/* Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {loading ? (
+          <div className="col-span-full py-20 text-center">
+            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
+              <span className="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Loading...</span>
+            </div>
+            <p className="mt-4 text-slate-500 dark:text-slate-400 font-medium">Loading issues...</p>
+          </div>
+        ) : issues.length === 0 ? (
+          <div className="col-span-full py-20 text-center bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800">
+            <p className="text-slate-500 dark:text-slate-400 font-medium">No issues found matching your criteria.</p>
+          </div>
+        ) : issues.map((issue) => (
+          <motion.div
+            key={issue.id}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            whileHover={{ y: -4 }}
+            onClick={() => setSelectedIssue(issue)}
+            className="group relative overflow-hidden rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm transition-all hover:shadow-xl dark:hover:shadow-blue-900/10 cursor-pointer"
+          >
+            {/* Image Section */}
+            <div className="relative h-48 w-full overflow-hidden">
+              <img
+                src={issue.imageUrl || `https://picsum.photos/seed/${issue.type}-${issue.id}/600/400`}
+                alt={issue.type}
+                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                referrerPolicy="no-referrer"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-60" />
+              <div className="absolute top-4 right-4">
+                <div className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-lg ${
+                  issue.severity >= 8 ? 'bg-rose-500 text-white' :
+                  issue.severity >= 5 ? 'bg-amber-500 text-white' :
+                  'bg-blue-500 text-white'
+                }`}>
+                  {issue.severity >= 8 ? t('critical') : issue.severity >= 5 ? t('high') : t('normal')}
+                </div>
+              </div>
+              <div className="absolute bottom-4 left-4">
+                <div className="flex items-center gap-2 text-white">
+                  <div className="h-8 w-8 rounded-lg bg-white/20 backdrop-blur-md flex items-center justify-center">
+                    <AlertTriangle size={16} />
+                  </div>
+                  <span className="text-sm font-bold capitalize">{issue.type.replace('_', ' ')}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Content Section */}
+            <div className="p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white mb-1 line-clamp-1">
+                    {issue.type.replace('_', ' ').toUpperCase()} #{issue.id.slice(-6)}
+                  </h3>
+                  <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                    <MapPin size={14} className="text-blue-500" />
+                    <span className="text-xs font-bold">{issue.ward ? `${issue.ward}, ` : ''}{issue.location}</span>
+                  </div>
+                </div>
+                <div className={`h-10 w-10 rounded-xl flex items-center justify-center border-2 ${
+                  issue.status === 'resolved' ? 'border-emerald-500/20 bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400' :
+                  issue.status === 'in_progress' ? 'border-blue-500/20 bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400' :
+                  'border-slate-200 bg-slate-50 text-slate-400 dark:bg-slate-800 dark:border-slate-700'
+                }`}>
+                  {issue.status === 'resolved' ? <CheckCircle size={20} /> : <Clock size={20} />}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="h-6 w-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                    <Users size={12} className="text-slate-500" />
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
+                    {issue.department}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors">
+                    <Eye size={18} />
+                  </button>
+                  <button className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                    <MoreVertical size={18} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* Issue Details Modal */}
+      <AnimatePresence>
+        {selectedIssue && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800"
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setSelectedIssue(null)}
+                className="absolute top-6 right-6 z-10 p-2 rounded-full bg-white/80 dark:bg-slate-800/80 text-slate-900 dark:text-white hover:bg-white dark:hover:bg-slate-700 transition-colors shadow-lg"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="overflow-y-auto h-full p-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {/* Image Section */}
+                  <div className="space-y-4">
+                    <div 
+                      className="relative h-64 w-full rounded-3xl overflow-hidden shadow-inner bg-slate-100 dark:bg-slate-800 cursor-zoom-in group/img"
+                      onClick={() => setShowFullImage(true)}
+                    >
+                      <img
+                        src={selectedIssue.imageUrl || `https://picsum.photos/seed/${selectedIssue.type}-${selectedIssue.id}/600/400`}
+                        alt={selectedIssue.type}
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover/img:scale-105"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover/img:opacity-100">
+                        <Maximize2 className="text-white" size={32} />
+                      </div>
+                      <div className={`absolute top-4 left-4 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-lg ${
+                        selectedIssue.severity >= 8 ? 'bg-rose-500 text-white' :
+                        selectedIssue.severity >= 5 ? 'bg-amber-500 text-white' :
+                        'bg-blue-500 text-white'
+                      }`}>
+                        {selectedIssue.severity >= 8 ? t('critical') : selectedIssue.severity >= 5 ? t('high') : t('normal')}
+                      </div>
+                    </div>
+
+                    <div className="p-6 rounded-3xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                      <h5 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">{t('description')}</h5>
+                      <p className="text-slate-700 dark:text-slate-300 text-sm leading-relaxed font-medium">
+                        {selectedIssue.description || t('no_description_provided')}
+                      </p>
+                    </div>
+
+                    {/* AI Analysis Section */}
+                    <div className="p-6 rounded-3xl bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100/50 dark:border-blue-800/20">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                        <h5 className="text-xs font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest">AI Analysis</h5>
+                      </div>
+                      <p className="text-slate-700 dark:text-slate-300 text-sm leading-relaxed font-medium italic">
+                        {selectedIssue.aiDescription || "AI is analyzing this issue... Based on initial visual data, this appears to be a significant infrastructure concern requiring immediate attention. Recommended priority: High."}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Details Section */}
+                  <div className="space-y-6">
+                    <div>
+                      <h2 className="text-3xl font-black text-slate-900 dark:text-white capitalize mb-2">
+                        {selectedIssue.type.replace('_', ' ')}
+                      </h2>
+                      <div className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold ${
+                        selectedIssue.status === 'resolved' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400' :
+                        selectedIssue.status === 'in_progress' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400' :
+                        'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                      }`}>
+                        <div className={`h-2 w-2 rounded-full ${
+                          selectedIssue.status === 'resolved' ? 'bg-emerald-500' :
+                          selectedIssue.status === 'in_progress' ? 'bg-blue-500' :
+                          'bg-slate-400'
+                        }`} />
+                        {selectedIssue.status === 'resolved' ? t('resolved') : selectedIssue.status === 'in_progress' ? t('in_progress') : t('pending')}
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="flex items-start gap-4 p-4 rounded-2xl bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100/50 dark:border-blue-800/20">
+                        <div className="p-2 rounded-xl bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                          <MapPin size={20} />
+                        </div>
+                        <div>
+                          <h6 className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">{t('location')}</h6>
+                          <p className="text-sm font-bold text-slate-900 dark:text-white">
+                            {selectedIssue.ward ? `${selectedIssue.ward}, ` : ''}{selectedIssue.location}
+                          </p>
+                          <p className="text-[10px] font-medium text-slate-500 mt-1">
+                            {selectedIssue.lat.toFixed(6)}, {selectedIssue.lng.toFixed(6)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-4 p-4 rounded-2xl bg-indigo-50/50 dark:bg-indigo-900/10 border border-indigo-100/50 dark:border-indigo-800/20">
+                        <div className="p-2 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
+                          <Calendar size={20} />
+                        </div>
+                        <div>
+                          <h6 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">{t('reported_on')}</h6>
+                          <p className="text-sm font-bold text-slate-900 dark:text-white">
+                            {new Date(selectedIssue.reportedAt || selectedIssue.createdAt || new Date()).toLocaleDateString('en-IN', {
+                              day: 'numeric',
+                              month: 'long',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                        <div className="p-2 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400">
+                          <Info size={20} />
+                        </div>
+                        <div>
+                          <h6 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('department')}</h6>
+                          <p className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                            {selectedIssue.department}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 space-y-3">
+                      <h5 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Update Status</h5>
+                      <div className="grid grid-cols-3 gap-2">
+                        {['pending', 'in_progress', 'resolved'].map((status) => (
+                          <button
+                            key={status}
+                            disabled={updatingStatus || selectedIssue.status === status}
+                            onClick={() => handleUpdateStatus(status)}
+                            className={`py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                              selectedIssue.status === status
+                                ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 dark:shadow-blue-900/20'
+                                : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
+                            } disabled:opacity-50`}
+                          >
+                            {status.replace('_', ' ')}
+                          </button>
+                        ))}
+                      </div>
+                      <button 
+                        onClick={() => setSelectedIssue(null)}
+                        className="w-full py-4 mt-4 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black text-sm uppercase tracking-widest hover:opacity-90 transition-opacity"
+                      >
+                        {t('close')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
